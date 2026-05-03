@@ -137,32 +137,59 @@ export default function AdminPage() {
   }
  
   async function loadBookings() {
-    const { data: bookingsData } = await supabase
+    // 1. Fetch raw bookings with descending order by id if possible
+    const { data: bookingsData, error: fetchError } = await supabase
       .from("bookings")
-      .select("id, user_id, venue_id, date, status, payment_receipt_url")
+      .select("*")
+      .order("id", { ascending: false });
  
-    if (!bookingsData) return
- 
-    const enriched = await Promise.all(
-      bookingsData.map(async (b) => {
-        const [{ data: venue }, { data: profile }] = await Promise.all([
-          supabase.from("venues").select("name, brand, location").eq("id", b.venue_id).single(),
-          supabase.from("profiles").select("email").eq("id", b.user_id).single(),
-        ])
- 
-        let receiptUrl = null
-        if (b.payment_receipt_url) {
-          const { data: urlData } = supabase.storage
-            .from("payment receipt").getPublicUrl(b.payment_receipt_url)
-          receiptUrl = urlData?.publicUrl || null
-        }
- 
-        return { ...b, venue: venue || {}, userEmail: profile?.email || "Unknown", receiptUrl }
-      })
-    )
-    setBookings(enriched)
+    if (fetchError || !bookingsData) {
+      // Fallback: fetch without order and sort manually
+      const { data: fallback } = await supabase.from("bookings").select("*");
+      if (!fallback) return;
+      
+      const sorted = [...fallback].sort((a, b) => {
+        // Try numeric ID first
+        if (!isNaN(a.id) && !isNaN(b.id)) return Number(b.id) - Number(a.id);
+        // Fallback to string comparison
+        return String(b.id).localeCompare(String(a.id));
+      });
+      
+      const enriched = await Promise.all(sorted.map(b => enrichBooking(b)));
+      setBookings(enriched);
+      return;
+    }
+
+    const enriched = await Promise.all(bookingsData.map(b => enrichBooking(b)));
+    setBookings(enriched);
   }
- 
+
+  async function enrichBooking(b) {
+    try {
+      const [venueRes, profileRes] = await Promise.all([
+        b.venue_id ? supabase.from("venues").select("name").eq("id", b.venue_id).single() : Promise.resolve({ data: null }),
+        b.user_id ? supabase.from("profiles").select("email").eq("id", b.user_id).single() : Promise.resolve({ data: null })
+      ]);
+
+      let receiptUrl = null;
+      if (b.payment_receipt_url) {
+        const { data: urlData } = supabase.storage
+          .from("payment-receipts")
+          .getPublicUrl(b.payment_receipt_url);
+        receiptUrl = urlData?.publicUrl || null;
+      }
+
+      return { 
+        ...b, 
+        venue: venueRes?.data || { name: t.unknown_venue || "Unknown Venue" }, 
+        userEmail: profileRes?.data?.email || "Unknown User", 
+        receiptUrl 
+      };
+    } catch (err) {
+      return { ...b, venue: { name: "Error Loading" }, userEmail: "Error Loading", receiptUrl: null };
+    }
+  }
+
   async function addVenue() {
     if (!newVenue.name || !newVenue.brand || !newVenue.price_per_day || !newVenue.location || (!newVenue.image_url && !imageFile)) { alert(t.fill_all_fields); return }
     setAddingVenue(true)
@@ -434,65 +461,79 @@ export default function AdminPage() {
               ))}
             </div>
  
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 32 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 24, alignItems: "start" }}>
             
             {/* Bookings per Venue */}
-            <div className={twGlassCard} style={{ padding: 24, borderRadius: 24, border: `1px solid ${glassBorder}` }}>
-              <h3 style={{ fontSize: 20, fontWeight: 500, color: text, marginBottom: 24, letterSpacing: "-0.02em" }}>{t.bookings_per_venue_label}</h3>
-              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-                {venues.map(v => {
+            <div className={twGlassCard} style={{ padding: "24px 28px", borderRadius: 24, border: `1px solid ${glassBorder}`, height: "fit-content", minWidth: 0 }}>
+              <h3 style={{ fontSize: 24, fontWeight: 500, color: text, marginBottom: 24, fontFamily: headingFont, letterSpacing: "-0.01em" }}>{t.bookings_per_venue_label}</h3>
+              <div style={{ display: "flex", flexDirection: "column" }}>
+                {venues.map((v, i) => {
                   const vs = venueStats[v.id] || { total: 0, pending: 0, confirmed: 0 }
                   const pct = vs.total > 0 ? Math.round((vs.confirmed / vs.total) * 100) : 0
                   return (
-                  <div key={v.id} style={{ padding: "16px 20px", borderRadius: 16, background: dark ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.02)", display: "flex", alignItems: "center", gap: 20 }}>
-                    <div style={{ flex: 1 }}>
-                      <p style={{ fontWeight: 600, color: text, fontSize: 15 }}>{v.name}</p>
-                      <p style={{ fontSize: 12, color: textMuted }}>📍 {v.location}</p>
-                    </div>
-                    <div style={{ textAlign: "center", minWidth: 60 }}>
-                      <p style={{ fontSize: 20, fontWeight: 700, color: text }}>{vs.total}</p>
-                      <p style={{ fontSize: 9, color: textMuted, textTransform: "uppercase" }}>{t.total_label}</p>
-                    </div>
-                    <div style={{ textAlign: "center", minWidth: 60 }}>
-                      <p style={{ fontSize: 20, fontWeight: 700, color: pendingColor }}>{vs.pending}</p>
-                      <p style={{ fontSize: 9, color: textMuted, textTransform: "uppercase" }}>{t.pending_l}</p>
-                    </div>
-                    <div style={{ textAlign: "center", minWidth: 60 }}>
-                      <p style={{ fontSize: 20, fontWeight: 700, color: confirmedColor }}>{vs.confirmed}</p>
-                      <p style={{ fontSize: 9, color: textMuted, textTransform: "uppercase" }}>{t.confirmed}</p>
-                    </div>
-                    <div style={{ width: 120 }}>
-                      <div style={{ height: 6, background: dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.05)", borderRadius: 3, overflow: "hidden", marginBottom: 6 }}>
-                        <div style={{ width: `${pct}%`, height: "100%", background: confirmedColor, borderRadius: 3 }} />
+                    <div key={v.id} style={{ 
+                      padding: "16px 0", 
+                      borderBottom: i === venues.length - 1 ? "none" : `1px solid ${dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)"}`,
+                      display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16
+                    }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <p style={{ fontWeight: 600, color: text, fontSize: 16, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{v.name}</p>
+                        <p style={{ fontSize: 12, color: textMuted, marginTop: 2 }}>📍 {v.location}</p>
                       </div>
-                      <p style={{ fontSize: 10, color: textMuted, textAlign: "right" }}>{pct}% {t.pct_confirmed_label}</p>
+                      
+                      <div style={{ display: "flex", alignItems: "center", gap: 24, flexShrink: 0 }}>
+                        <div style={{ textAlign: "center", minWidth: 30 }}>
+                          <p style={{ fontSize: 20, fontWeight: 700, color: text }}>{vs.total}</p>
+                        </div>
+                        
+                        <div style={{ textAlign: "center", minWidth: 55 }}>
+                          <p style={{ fontSize: 18, fontWeight: 700, color: pendingColor }}>{vs.pending}</p>
+                          <p style={{ fontSize: 7, color: textMuted, textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.05em" }}>{t.pending_l}</p>
+                        </div>
+                        
+                        <div style={{ textAlign: "center", minWidth: 60 }}>
+                          <p style={{ fontSize: 18, fontWeight: 700, color: confirmedColor }}>{vs.confirmed}</p>
+                          <p style={{ fontSize: 7, color: textMuted, textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.05em" }}>{t.confirmed}</p>
+                        </div>
+                        
+                        <div style={{ width: 90, display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
+                          <div style={{ width: "100%", height: 4, background: dark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.06)", borderRadius: 2, overflow: "hidden", marginBottom: 4 }}>
+                            <div style={{ width: `${pct}%`, height: "100%", background: confirmedColor, borderRadius: 2 }} />
+                          </div>
+                          <p style={{ fontSize: 9, color: textMuted }}>{pct}% {t.confirmed || "confirmed"}</p>
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                )})}
+                  )
+                })}
               </div>
             </div>
 
             {/* Recent Activity */}
-            <div className={twGlassCard} style={{ padding: 24, borderRadius: 24, border: `1px solid ${glassBorder}`, display: "flex", flexDirection: "column" }}>
-              <h3 style={{ fontSize: 20, fontWeight: 500, color: text, marginBottom: 24, letterSpacing: "-0.02em" }}>{t.recent_activities}</h3>
-              <div style={{ display: "flex", flexDirection: "column", gap: 2, flex: 1 }}>
+            <div className={twGlassCard} style={{ padding: "24px 28px", borderRadius: 24, border: `1px solid ${glassBorder}`, display: "flex", flexDirection: "column", height: "fit-content", minWidth: 0 }}>
+              <h3 style={{ fontSize: 24, fontWeight: 500, color: text, marginBottom: 24, fontFamily: headingFont, letterSpacing: "-0.01em" }}>{t.recent_activities}</h3>
+              <div style={{ display: "flex", flexDirection: "column", gap: 0, flex: 1 }}>
                 {activities.length === 0 ? (
-                  <p style={{ color: textMuted, fontSize: 13, padding: 20, textAlign: "center" }}>{t.no_recent_activities}</p>
+                  <p style={{ color: textMuted, fontSize: 14, padding: 32, textAlign: "center" }}>{t.no_recent_activities}</p>
                 ) : (
                   activities.map((act, i) => (
                     <div key={act.id} style={{ 
-                      display: "flex", alignItems: "start", gap: 16, padding: "16px 0",
-                      borderBottom: i === activities.length - 1 ? "none" : `1px solid ${dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.05)"}`
+                      display: "flex", alignItems: "center", gap: 16, padding: "16px 0",
+                      borderBottom: i === activities.length - 1 ? "none" : `1px solid ${dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)"}`
                     }}>
-                      <div style={{ width: 40, height: 40, borderRadius: 12, background: dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.04)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>
-                        {act.icon}
+                      <div style={{ 
+                        width: 40, height: 40, borderRadius: 12, 
+                        background: dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.03)",
+                        display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0
+                      }}>
+                        {act.type === "booking" ? "📋" : "👥"}
                       </div>
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <p style={{ fontSize: 14, fontWeight: 600, color: text }}>{act.title}</p>
-                        <p style={{ fontSize: 12, color: textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{act.desc}</p>
+                        <p style={{ fontWeight: 600, color: text, fontSize: 14 }}>{act.title}</p>
+                        <p style={{ fontSize: 12, color: textMuted, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{act.desc}</p>
                       </div>
                       <div style={{ textAlign: "right", flexShrink: 0 }}>
-                        <p style={{ fontSize: 11, color: textMuted }}>{act.date.toLocaleDateString()}</p>
+                        <p style={{ fontSize: 11, color: textMuted, fontWeight: 600 }}>{act.date.toLocaleDateString()}</p>
                         <p style={{ fontSize: 10, color: textMuted, opacity: 0.8 }}>{act.date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
                       </div>
                     </div>

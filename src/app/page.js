@@ -15,8 +15,8 @@ export default function Home() {
   } = useTheme()
 
   const displayFont = lang === "ar"
-    ? "'Amiri','Tajawal',serif"
-    : "'Cormorant Garamond',Georgia,serif"
+    ? "'El Messiri', 'Amiri', serif"
+    : "'Cormorant Garamond', Georgia, serif"
 
   const [user, setUser] = useState(null)
   const [sessionLoaded, setSessionLoaded] = useState(false)
@@ -55,7 +55,7 @@ export default function Home() {
 
       <main style={{ flex: 1 }}>
         {/* ── HERO ── */}
-      <section style={{ position: "relative", height: 520, overflow: "hidden", marginTop: -12 }}>
+      <section style={{ position: "relative", height: 560, overflow: "hidden" }}>
         <div style={{
           position: "absolute", inset: 0,
           WebkitMaskImage: "linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%)",
@@ -66,7 +66,7 @@ export default function Home() {
             backgroundImage: `url('https://images.unsplash.com/photo-1519167758481-83f550bb49b3?w=1600&q=85')`,
             backgroundSize: "cover", backgroundPosition: "center",
           }} />
-          <div className={dark ? "hero-overlay-dark" : "hero-overlay-light"} style={{ position: "absolute", inset: 0 }} />
+          <div className={dark ? (isRTL ? "hero-overlay-dark-rtl" : "hero-overlay-dark") : (isRTL ? "hero-overlay-light-rtl" : "hero-overlay-light")} style={{ position: "absolute", inset: 0 }} />
         </div>
 
         {/* Subtle top accent */}
@@ -78,7 +78,7 @@ export default function Home() {
 
         <div style={{
           position: "relative", zIndex: 2,
-          padding: "100px 60px",
+          padding: "140px 60px 100px",
           maxWidth: 640,
           marginLeft: isRTL ? "auto" : 0,
           textAlign: isRTL ? "right" : "left",
@@ -96,29 +96,35 @@ export default function Home() {
           <h1
             className="fade-up delay-1"
             style={{
-              fontFamily: "'Playfair Display', serif",
-              fontSize: 58, fontWeight: 400, lineHeight: 1.1,
-              color: dark ? "#fff" : "#1a1208", marginBottom: 20
+              fontFamily: displayFont,
+              fontSize: isRTL ? 64 : 58, 
+              fontWeight: 400, lineHeight: 1.1,
+              color: dark ? "#fff" : "#1a1208", marginBottom: 20,
+              textShadow: dark ? "0 2px 10px rgba(0,0,0,0.3)" : "none"
             }}
           >
             {t.hero_before}
-            <em style={{
-              color: accent, fontStyle: "italic",
-              textShadow: `0 0 40px ${accentGlow}`
-            }}>
-              {t.hero_colored}
-            </em>
+              <em style={{
+                color: accent, fontStyle: isRTL ? "normal" : "italic",
+                fontFamily: isRTL ? "'Amiri', serif" : "inherit",
+                fontSize: isRTL ? "1.1em" : "inherit",
+                textShadow: `0 0 40px ${accentGlow}, 0 2px 4px rgba(0,0,0,0.2)`
+              }}>
+                {t.hero_colored}
+              </em>
             {t.hero_after}
           </h1>
           <p
             className="fade-up delay-2"
             style={{ 
-              fontSize: 16, 
-              color: dark ? "rgba(255,255,255,0.7)" : "rgba(0,0,0,0.6)", 
+              fontSize: isRTL ? 18 : 16, 
+              color: dark ? "rgba(255,255,255,0.85)" : "rgba(0,0,0,0.75)", 
               lineHeight: 1.7, 
-              marginBottom: 40, 
+              marginBottom: 24, 
               maxWidth: 520, 
-              margin: isRTL ? "0 0 40px auto" : "0 auto 40px 0" 
+              margin: isRTL ? "0 0 24px auto" : "0 auto 24px 0",
+              textShadow: dark ? "0 1px 4px rgba(0,0,0,0.5)" : "none",
+              fontWeight: isRTL ? 500 : 400
             }}
           >
             {t.hero_sub}
@@ -126,7 +132,12 @@ export default function Home() {
 
           <div
             className="fade-up delay-3"
-            style={{ display: "flex", gap: 14, flexDirection: isRTL ? "row-reverse" : "row", alignItems: "center" }}
+            style={{ 
+              display: "flex", 
+              gap: 14, 
+              justifyContent: isRTL ? "flex-start" : "flex-start", 
+              alignItems: "center" 
+            }}
           >
             <button
               onClick={() => router.push("/venues")}

@@ -195,7 +195,7 @@ const T = {
     booking_declined_msg: "Your booking for {venue} has been declined.",
   },
   fr: {
-    home:"Accueil",venues:"Lieux",bookings:"Réservations",login:"Connexion",profile:"Profil",logout:"Déconnexion",signup:"S'inscrire",brand_name:"Saha Events",
+    home:"Accueil",venues:"Lieux",bookings:"Réservations",login:"Connexion",profile:"Profil",logout:"Déconnexion",signup:"S'inscrire",about:"À Propos",brand_name:"Saha Events",
     welcome:"Bienvenue chez Saha Events",
     hero_before:"Trouvez le lieu ",hero_colored:"parfait",hero_after:" pour votre événement",
     hero_sub:"Découvrez et réservez des espaces événementiels — des réunions intimes aux grandes célébrations.",
@@ -387,7 +387,7 @@ const T = {
     booking_declined_msg: "Votre réservation pour {venue} a été refusée.",
   },
   ar: {
-    home:"الرئيسية",venues:"القاعات",bookings:"الحجوزات",login:"دخول",profile:"الملف الشخصي",logout:"خروج",signup:"تسجيل",brand_name:"صحا إيفنتس",
+    home:"الرئيسية",venues:"القاعات",bookings:"الحجوزات",login:"دخول",profile:"الملف الشخصي",logout:"خروج",signup:"تسجيل",about:"من نحن",brand_name:"صحا إيفنتس",
     welcome:"مرحباً بك في صحا إيفنتس",
     hero_before:"ابحث عن المكان ",hero_colored:"المثالي",hero_after:" لحدثك",
     hero_sub:"اكتشف واحجز أروع الأماكن — من التجمعات الحميمة إلى الاحتفالات الكبرى.",
@@ -636,7 +636,7 @@ export function ThemeProvider({ children }) {
       <div dir={isRTL?"rtl":"ltr"} className={dark ? "dark" : ""} style={{
         background: "transparent", color: th.text, minHeight: "100vh",
         transition: "color 0.35s",
-        fontFamily: isRTL ? "'Tajawal','Noto Sans Arabic',sans-serif" : "'DM Sans',sans-serif",
+        fontFamily: isRTL ? "'IBM Plex Sans Arabic', 'El Messiri', 'Alexandria', sans-serif" : "'DM Sans', sans-serif",
       }}>
         {children}
       </div>
