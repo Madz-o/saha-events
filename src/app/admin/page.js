@@ -61,24 +61,35 @@ export default function AdminPage() {
     setIsAdmin(true)
     await Promise.all([loadStats(), loadVenues(), loadBookings(), loadUsers()])
     setLoading(false)
-
-    // Realtime subscriptions
-    const channel = supabase.channel('admin-dashboard-realtime')
+ 
+    // Realtime subscriptions with unique channel and instant prepending
+    const channelId = `admin-dashboard-${Date.now()}`
+    const channel = supabase.channel(channelId)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'bookings' }, async (payload) => {
+        // Instant prepend for new bookings
+        const newBooking = await enrichBooking(payload.new);
+        setBookings(prev => [newBooking, ...prev]);
+        loadStats(); loadVenues();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bookings' }, (payload) => {
+        if (payload.eventType !== 'INSERT') {
+          loadBookings(); loadStats(); loadVenues();
+        }
+      })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => { loadUsers(); loadStats() })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'bookings' }, () => { loadBookings(); loadStats(); loadVenues() })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'venues' }, () => { loadVenues(); loadStats() })
       .subscribe()
-
+ 
     return () => {
       supabase.removeChannel(channel)
     }
   }
-
+ 
   async function loadUsers() {
     const { data } = await supabase.from("profiles").select("*");
     setUsers(data || []);
   }
-
+ 
   useEffect(() => {
     const acts = [];
     users.forEach((u, i) => {
@@ -86,13 +97,15 @@ export default function AdminPage() {
       acts.push({ type: "user", id: "u_"+u.id, title: t.new_user_joined, desc: u.email, date, icon: "👥" });
     });
     bookings.forEach((b, i) => {
-      const date = b.created_at ? new Date(b.created_at) : (b.date ? new Date(b.date) : new Date(Date.now() - i * 86400000));
+      // Use creation timestamp for activity date
+      const date = b.created_at ? new Date(b.created_at) : new Date();
       acts.push({ type: "booking", id: "b_"+b.id, title: t.new_booking_created, desc: `${b.userEmail} ${t.booked_text} ${b.venue?.name}`, date, icon: "📋" });
     });
-    acts.sort((a, b) => b.date - a.date);
+    // Strict chronological sort for activities
+    acts.sort((a, b) => b.date.getTime() - a.date.getTime());
     setActivities(acts.slice(0, 10));
   }, [users, bookings]);
- 
+  
   async function loadStats() {
     const [
       { count: userCount },
@@ -115,15 +128,15 @@ export default function AdminPage() {
       confirmed: confirmedCount || 0,
     })
   }
- 
+  
   async function loadVenues() {
     const { data } = await supabase.from("venues").select("*")
     const venueList = data || []
     setVenues(venueList)
- 
+  
     const { data: allBookings } = await supabase
       .from("bookings").select("venue_id, status")
- 
+  
     const vStats = {}
     venueList.forEach(v => {
       const vb = (allBookings || []).filter(b => b.venue_id === v.id)
@@ -135,32 +148,36 @@ export default function AdminPage() {
     })
     setVenueStats(vStats)
   }
- 
+  
   async function loadBookings() {
-    // 1. Fetch raw bookings with descending order by id if possible
-    const { data: bookingsData, error: fetchError } = await supabase
+    // 1. Fetch bookings perfectly sorted by the database
+    let { data: rawData, error: fetchError } = await supabase
       .from("bookings")
       .select("*")
-      .order("id", { ascending: false });
+      .order("created_at", { ascending: false });
  
-    if (fetchError || !bookingsData) {
-      // Fallback: fetch without order and sort manually
-      const { data: fallback } = await supabase.from("bookings").select("*");
-      if (!fallback) return;
-      
-      const sorted = [...fallback].sort((a, b) => {
-        // Try numeric ID first
-        if (!isNaN(a.id) && !isNaN(b.id)) return Number(b.id) - Number(a.id);
-        // Fallback to string comparison
-        return String(b.id).localeCompare(String(a.id));
-      });
-      
-      const enriched = await Promise.all(sorted.map(b => enrichBooking(b)));
-      setBookings(enriched);
-      return;
+    if (fetchError) {
+      // Fallback 1: Try inserted_at if created_at is missing
+      const { data: raw2, error: err2 } = await supabase
+        .from("bookings")
+        .select("*")
+        .order("inserted_at", { ascending: false });
+        
+      if (err2) {
+        // Fallback 2: Try database natural order and reverse it
+        const { data: raw3 } = await supabase.from("bookings").select("*");
+        rawData = raw3 ? [...raw3].reverse() : [];
+      } else {
+        rawData = raw2;
+      }
     }
 
-    const enriched = await Promise.all(bookingsData.map(b => enrichBooking(b)));
+    if (!rawData) return;
+
+    // 2. Enrich ALL bookings. Promise.all preserves the exact array order!
+    const enriched = await Promise.all(rawData.map(b => enrichBooking(b)));
+    
+    // 3. Set state directly. NO Javascript sorting here!
     setBookings(enriched);
   }
 
@@ -311,7 +328,7 @@ export default function AdminPage() {
  
   const filteredBookings = filterStatus === "all"
     ? bookings
-    : bookings.filter(b => b.status === filterStatus)
+    : bookings.filter(b => b.status === filterStatus);
  
   if (loading) return (
     <div style={{ minHeight: "100vh", background: bg, display: "flex", alignItems: "center", justifyContent: "center" }}>
